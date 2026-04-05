@@ -355,18 +355,21 @@ without strong auth.
 
 ## Threat Priority Matrix
 
-| #   | Component           | STRIDE                                       | Severity              | Existing Control                 | Enhancement                       |
-| --- | ------------------- | -------------------------------------------- | --------------------- | -------------------------------- | --------------------------------- |
-| 1   | Message pipeline    | **T** — Prompt injection                     | High                  | Sender allowlist (upstream only) | Injection guard skill             |
-| 2   | SOUL.md             | **T/S** — Silent modification                | High                  | OS file permissions only         | Signed manifest + tamper alert    |
-| 3   | Session storage     | **T** — Transcript tampering                 | High                  | OS file permissions only         | Session integrity checksums       |
-| 4   | Tool dispatch       | **S** — Token theft → operator impersonation | High                  | Rate limiting, loopback default  | Scoped tokens per surface         |
-| 5   | Skill supply chain  | **T/E** — Malicious skill                    | Medium                | Static scanner, allowlist        | Behavioral sandbox at runtime     |
-| 6   | sessions_spawn (WS) | **E** — Sub-agent RCE                        | Medium                | WS-only, auth-gated              | Scoped delegation tokens          |
-| 7   | Channel ingress     | **S** — Sender spoofing                      | Medium                | Allowlist, command gating        | Cryptographic sender verification |
-| 8   | Session storage     | **I** — Plaintext transcripts                | Medium                | OS file permissions              | Encryption at rest                |
-| 9   | Gateway network     | **D** — Public Funnel DoS                    | High if misconfigured | Audit flags it; rate limiting    | Enforce loopback-only default     |
-| 10  | Tool dispatch       | **T** — Policy pipeline bypass               | Low-Medium            | Static deny list applied last    | OPA/WASM policy engine            |
+| #   | Component            | STRIDE                                             | Severity              | Existing Control                    | Enhancement                           |
+| --- | -------------------- | -------------------------------------------------- | --------------------- | ----------------------------------- | ------------------------------------- |
+| 1   | Message pipeline     | **T** — Prompt injection                           | High                  | Sender allowlist (upstream only)    | Injection guard skill                 |
+| 2   | SOUL.md              | **T/S** — Silent modification                      | High                  | OS file permissions only            | Signed manifest + tamper alert        |
+| 3   | Session storage      | **T** — Transcript tampering                       | High                  | OS file permissions only            | Session integrity checksums           |
+| 4   | Tool dispatch        | **S** — Token theft → operator impersonation       | High                  | Rate limiting, loopback default     | Scoped tokens per surface             |
+| 5   | Skill supply chain   | **T/E** — Malicious skill                          | Medium                | Static scanner, allowlist           | Behavioral sandbox at runtime         |
+| 6   | sessions_spawn (WS)  | **E** — Sub-agent RCE                              | Medium                | WS-only, auth-gated                 | Scoped delegation tokens              |
+| 7   | Channel ingress      | **S** — Sender spoofing                            | Medium                | Allowlist, command gating           | Cryptographic sender verification     |
+| 8   | Session storage      | **I** — Plaintext transcripts                      | Medium                | OS file permissions                 | Encryption at rest                    |
+| 9   | Gateway network      | **D** — Public Funnel DoS                          | High if misconfigured | Audit flags it; rate limiting       | Enforce loopback-only default         |
+| 10  | Tool dispatch        | **T** — Policy pipeline bypass                     | Low-Medium            | Static deny list applied last       | OPA/WASM policy engine                |
+| 11  | Web search / browser | **T** — Indirect prompt injection via tool results | High                  | None — tool results unfiltered      | after_tool_call sanitization hook     |
+| 12  | Config merge         | **T** — Prototype pollution                        | Low-Medium            | Zod `.strict()` on most schemas     | Audit all merge paths pre-Zod         |
+| 13  | Media server         | **I** — Path traversal                             | Medium                | `fs-safe.ts` (coverage unconfirmed) | Verify canonicalization in media path |
 
 ---
 
@@ -413,6 +416,28 @@ inherited from the parent's full policy. Add `sandbox: "require"` as the default
 `"inherit"`).
 
 Hook point: `server-methods/sessions-spawn.ts` and `session-subagent-reactivation.ts`.
+
+---
+
+### 6. Indirect Injection Guard (closes threat #11)
+
+An `after_tool_call` hook that runs a classifier on tool results from web-search,
+browser, and MCP tools before they enter the conversation context. Distinguishes
+between adversarial instructions embedded in retrieved content and legitimate data.
+Can annotate the result with a `[UNVERIFIED EXTERNAL CONTENT]` label so the model
+can weight it appropriately.
+
+Hook point: `after_tool_call` registered hook, specifically for tools with
+`source: "external"` classification.
+
+---
+
+### 7. Config Merge Prototype Pollution Audit (closes threat #12)
+
+Audit all config object merge paths to ensure user-supplied JSON always passes
+through Zod schema parsing _before_ any `Object.assign` or spread merge operation.
+Add a `hasOwnProperty` guard on merge utilities and a lint rule blocking
+`{...userSupplied}` spreads on unvalidated data.
 
 ---
 

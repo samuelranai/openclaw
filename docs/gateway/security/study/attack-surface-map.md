@@ -240,6 +240,79 @@ plus strong gateway auth.
 
 ---
 
+### 11. Command Queue — Session Lane Serialization
+
+**Source:** `src/agents/pi-embedded-runner/` (not directly read; confirmed by robotpaper reference)
+
+The command queue enforces single-writer semantics per session. Messages arriving
+during an active agent run are queued or steered depending on the configured queue mode.
+
+**Queue modes and their security implications:**
+
+| Mode            | Behavior                          | Security note                            |
+| --------------- | --------------------------------- | ---------------------------------------- |
+| `collect`       | Queue until run completes         | Safe; message delivered in order         |
+| `steer`         | Interrupt current run immediately | Can abort an in-progress approval dialog |
+| `followup`      | Append to current run             | Lower risk                               |
+| `steer-backlog` | Steer + flush queue after         | Same interrupt risk as steer             |
+
+**Risk:** A permitted sender who triggers `steer` during an active exec-approval
+dialog causes the approval to time out. If a `before_tool_call` hook uses
+`timeoutBehavior: "allow"`, the steer-interrupted run proceeds without approval.
+
+---
+
+### 12. Memory Layers — 4-Layer Stack
+
+**Source:** Session JSONL confirmed by source read; layers 2–4 confirmed by
+robotpaper reference architecture.
+
+| Layer | Path                                          | Access                   | Integrity |
+| ----- | --------------------------------------------- | ------------------------ | --------- |
+| 1     | `~/.openclaw/agents/<id>/sessions/<id>.jsonl` | R/W per run              | None      |
+| 2     | `~/.openclaw/workspace/memory/YYYY-MM-DD.md`  | R/W per run              | None      |
+| 3     | `~/.openclaw/workspace/MEMORY.md`             | R private sessions only  | None      |
+| 4     | SQLite + LanceDB vector index                 | Read via semantic search | None      |
+
+**Isolation property (Layer 3):** MEMORY.md is loaded only in private (non-shared-channel)
+sessions. Multi-user shared-channel sessions cannot read personal memory context.
+
+---
+
+### 13. MCP Tool Integration
+
+**Source:** `src/agents/mcp*` — not read in detail during source walkthrough.
+Identified by inceptionstack architecture document.
+
+MCP (Model Context Protocol) tools are dispatched to an external MCP server outside
+the gateway process. The gateway proxies tool calls to the server and returns results
+to the agent loop.
+
+**Attack surface:**
+
+- Tool result content enters the conversation context without sanitization —
+  indirect injection via MCP server response
+- MCP tool names are subject to the policy pipeline, but execution happens off-host
+- A compromised MCP server can return tool results designed to manipulate the agent
+
+---
+
+### 14. Media Server — File Serving Path
+
+**Source:** `src/gateway/control-ui.ts`, `src/media/` — not read in detail.
+Identified by inceptionstack vulnerability analysis.
+
+The gateway's embedded media server serves image/audio/video files. Insufficient
+path canonicalization before file serving could allow `../` traversal reads.
+
+**Existing control:** `src/infra/fs-safe.ts` provides general filesystem safety
+utilities. Application to the media server path was not confirmed in the walkthrough.
+
+**Verify:** All media path resolutions should use `path.resolve()` followed by a
+`startsWith(mediaRoot)` guard.
+
+---
+
 ## Data Flow Diagram (Text)
 
 ```
@@ -252,27 +325,36 @@ External Sender (WhatsApp / Telegram / Slack / ...)
   stripEnvelopeFromMessages()          ← sanitizes envelope, NOT body content
         │
         ▼
+  Command Queue (session lane — serial)
+    collect / steer / followup / steer-backlog modes
+        │
+        ▼
   buildAgentMessageFromConversationEntries()
         │                                ▲
-        │                         session JSONL transcript (no integrity check)
+        │                  [Memory stack]
+        │                  L1: session JSONL (no integrity check)
+        │                  L2: daily logs
+        │                  L3: MEMORY.md (private sessions only)
+        │                  L4: vector search (SQLite + LanceDB)
         ▼
   LLM call  [system prompt = SOUL.md (no integrity check)]
         │
         ▼
   tool call decision
-        ├── policy pipeline check (profile / global / agent / group / subagent)
-        ├── DEFAULT_GATEWAY_HTTP_TOOL_DENY (static deny)
+        ├── policy pipeline check (8 steps: profile / byProvider / global / agent / group / subagent / HTTP-deny / hooks)
         ├── exec approval check (allowlist / ask UI)
         └── tool.execute()
               ├── bash / shell  → gateway host (or sandbox if configured)
               ├── fs_write / apply_patch  → workspace (or host)
               ├── sessions_spawn  → sub-agent (RCE risk, WS-only)
-              └── browser  → CDP, network egress
+              ├── browser  → CDP, network egress
+              ├── web_search  → result enters context unfiltered (indirect injection)
+              └── mcp_*  → external MCP server (result enters context unfiltered)
 ```
 
 ---
 
-## High-Risk Change Indicators
+## High-Risk Change Indicators (Updated)
 
 When reviewing a change, treat any of the following as a signal to apply extra scrutiny:
 
@@ -285,6 +367,10 @@ When reviewing a change, treat any of the following as a signal to apply extra s
 - Relaxing SSRF checks in `src/infra/net/ssrf.ts`
 - Changing sandbox fallback behavior (when `sandbox.mode` is unset)
 - Exposing the gateway on a non-loopback interface without a corresponding auth requirement
+- Changing command queue mode defaults (especially enabling `steer` mode on shared channels)
+- Adding new tool result sources (MCP, browser, web-search) without `after_tool_call` sanitization
+- Changing media server file serving paths without verifying `startsWith(mediaRoot)` guard
+- Adding config merge utilities that operate on user-supplied data before Zod validation
 
 ---
 
