@@ -355,21 +355,29 @@ without strong auth.
 
 ## Threat Priority Matrix
 
-| #   | Component            | STRIDE                                             | Severity              | Existing Control                    | Enhancement                           |
-| --- | -------------------- | -------------------------------------------------- | --------------------- | ----------------------------------- | ------------------------------------- |
-| 1   | Message pipeline     | **T** — Prompt injection                           | High                  | Sender allowlist (upstream only)    | Injection guard skill                 |
-| 2   | SOUL.md              | **T/S** — Silent modification                      | High                  | OS file permissions only            | Signed manifest + tamper alert        |
-| 3   | Session storage      | **T** — Transcript tampering                       | High                  | OS file permissions only            | Session integrity checksums           |
-| 4   | Tool dispatch        | **S** — Token theft → operator impersonation       | High                  | Rate limiting, loopback default     | Scoped tokens per surface             |
-| 5   | Skill supply chain   | **T/E** — Malicious skill                          | Medium                | Static scanner, allowlist           | Behavioral sandbox at runtime         |
-| 6   | sessions_spawn (WS)  | **E** — Sub-agent RCE                              | Medium                | WS-only, auth-gated                 | Scoped delegation tokens              |
-| 7   | Channel ingress      | **S** — Sender spoofing                            | Medium                | Allowlist, command gating           | Cryptographic sender verification     |
-| 8   | Session storage      | **I** — Plaintext transcripts                      | Medium                | OS file permissions                 | Encryption at rest                    |
-| 9   | Gateway network      | **D** — Public Funnel DoS                          | High if misconfigured | Audit flags it; rate limiting       | Enforce loopback-only default         |
-| 10  | Tool dispatch        | **T** — Policy pipeline bypass                     | Low-Medium            | Static deny list applied last       | OPA/WASM policy engine                |
-| 11  | Web search / browser | **T** — Indirect prompt injection via tool results | High                  | None — tool results unfiltered      | after_tool_call sanitization hook     |
-| 12  | Config merge         | **T** — Prototype pollution                        | Low-Medium            | Zod `.strict()` on most schemas     | Audit all merge paths pre-Zod         |
-| 13  | Media server         | **I** — Path traversal                             | Medium                | `fs-safe.ts` (coverage unconfirmed) | Verify canonicalization in media path |
+| #   | Component             | STRIDE                                             | Severity              | Existing Control                     | Enhancement                                            |
+| --- | --------------------- | -------------------------------------------------- | --------------------- | ------------------------------------ | ------------------------------------------------------ |
+| 1   | Message pipeline      | **T** — Prompt injection                           | High                  | Sender allowlist (upstream only)     | Injection guard skill                                  |
+| 2   | SOUL.md               | **T/S** — Silent modification                      | High                  | OS file permissions only             | Signed manifest + tamper alert                         |
+| 3   | Session storage       | **T** — Transcript tampering                       | High                  | OS file permissions only             | Session integrity checksums                            |
+| 4   | Tool dispatch         | **S** — Token theft → operator impersonation       | High                  | Rate limiting, loopback default      | Scoped tokens per surface                              |
+| 5   | Skill supply chain    | **T/E** — Malicious skill                          | Medium                | Static scanner, allowlist            | Behavioral sandbox at runtime                          |
+| 6   | sessions_spawn (WS)   | **E** — Sub-agent RCE                              | Medium                | WS-only, auth-gated                  | Scoped delegation tokens                               |
+| 7   | Channel ingress       | **S** — Sender spoofing                            | Medium                | Allowlist, command gating            | Cryptographic sender verification                      |
+| 8   | Session storage       | **I** — Plaintext transcripts                      | Medium                | OS file permissions                  | Encryption at rest                                     |
+| 9   | Gateway network       | **D** — Public Funnel DoS                          | High if misconfigured | Audit flags it; rate limiting        | Enforce loopback-only default                          |
+| 10  | Tool dispatch         | **T** — Policy pipeline bypass                     | Low-Medium            | Static deny list applied last        | OPA/WASM policy engine                                 |
+| 11  | Web search / browser  | **T** — Indirect prompt injection via tool results | High                  | None — tool results unfiltered       | after_tool_call sanitization hook                      |
+| 12  | Config merge          | **T** — Prototype pollution                        | Low-Medium            | Zod `.strict()` on most schemas      | Audit all merge paths pre-Zod                          |
+| 13  | Media server          | **I** — Path traversal                             | Medium                | `fs-safe.ts` (coverage unconfirmed)  | Verify canonicalization in media path                  |
+| 14  | Compaction pipeline   | **T** — Safety constraint eviction                 | High                  | None                                 | `before_compaction` safety-turn tagging                |
+| 15  | MEMORY.md / vector DB | **T** — Memory pollution / soft backdoor           | High                  | None                                 | `memory_write` hook + content provenance               |
+| 16  | Tool dispatch         | **T/E** — Sequential Tool Attack Chain (STAC)      | High                  | Per-call policy only                 | Cross-call chain analysis in `before_tool_call`        |
+| 17  | Gateway auth          | **S** — ClawJacked loopback CSRF token theft       | Medium                | Loopback trusted by design           | Browser-origin gate on loopback connections            |
+| 18  | Channel adapters      | **S** — Mutable platform ID in allowlists          | High (13 CVEs)        | Per-adapter, inconsistent            | Shared `resolveAllowlistIdentity()` abstraction        |
+| 19  | Exec approval         | **T/E** — Lexical parsing bypass (3 vectors)       | High (3 CVEs)         | Lexical string match                 | Semantic command interpretation                        |
+| 20  | Docker sandbox config | **E** — Bind-mount host escape                     | Critical              | None (emergent from Docker defaults) | `validate-sandbox-security.ts` with BLOCKED_HOST_PATHS |
+| 21  | sessions_send         | **T** — Inter-session provenance confusion         | Medium                | Blocked on HTTP; WS available        | `InputProvenance` tagging on all context inputs        |
 
 ---
 
@@ -452,6 +460,82 @@ Hook point: `tool-policy-pipeline.ts` as a new pipeline step.
 
 ---
 
+### 8. Compaction Safety-Turn Tagging (closes threat #14)
+
+Before the compaction summarizer runs, tag turns that contain safety constraints
+(identified by a pattern match or a `provenance: "safety_rule"` metadata field) as
+non-evictable. The compaction prompt must preserve tagged turns verbatim rather than
+summarizing them away.
+
+Hook point: `before_compaction` registered hook; `session-transcript-files.fs.ts`
+compaction path.
+
+---
+
+### 9. Memory Write Provenance Gate (closes threat #15)
+
+Add a provenance check to the `memory_write` tool: if the calling context is
+`inter_session` or `tool_result` provenance, require explicit operator confirmation
+before writing to MEMORY.md or the vector database. Block writes containing
+instruction-like patterns (imperative sentences, system-prompt-style headers) from
+non-operator provenance sources.
+
+Hook point: `before_tool_call` for `memory_write` tool calls; `InputProvenance` enum.
+
+---
+
+### 10. Sequential Tool Attack Chain (STAC) Detection (closes threat #16)
+
+Maintain a per-session tool-call sequence log in the `before_tool_call` hook handler.
+After each call, evaluate the sequence against a set of known dangerous patterns:
+`fs_read → http_request`, `fs_read → send_message`, `apply_patch → cron`, etc.
+When a dangerous sequence is detected, require explicit approval for the next call.
+
+Hook point: `before_tool_call` with cross-call state (session-keyed map in plugin state).
+
+---
+
+### 11. Semantic Command Interpretation in Exec Approval (closes threat #19)
+
+Replace or augment lexical string matching in `exec-approval-manager.ts` with:
+
+1. Pre-check: detect shell line-continuation sequences (backslash-newline)
+2. Multiplexer unwrapping: `unwrapKnownShellMultiplexerInvocation` for busybox/toybox
+3. Long-option normalization: `resolveCanonicalLongFlag` for GNU-style prefix matching
+4. Re-evaluate against allowlist after normalization
+
+---
+
+### 12. Docker Sandbox Config Validation (closes threat #20)
+
+When `sandbox.mode` is enabled, add a `validate-sandbox-security.ts` validation step
+before Docker invocation. Check all bind-mount paths against `BLOCKED_HOST_PATHS`
+(`/etc`, `/proc`, `/sys`, `/dev`, `/root`, `/var/run/docker.sock`, macOS aliases).
+Implement ancestor-coverage checking (reject `/run` because it transitively exposes
+`/run/docker.sock`).
+
+---
+
+### 13. Context Provenance Tagging Across All Inputs (closes threats #15, #21)
+
+Introduce `InputProvenance` as a first-class concept on all context-window entries:
+
+```typescript
+type InputProvenance = {
+  kind: "external_user" | "inter_session" | "internal_system" | "tool_result" | "skill_content";
+  sourceId?: string; // channel id, tool name, skill id
+};
+```
+
+Attach provenance to: channel messages, `sessions_send` routed messages, tool results,
+skill content loaded into context, and compaction summaries. Use provenance in:
+
+- Compaction: preserve `internal_system` safety turns
+- `memory_write` hook: gate non-operator provenance writes
+- Context display: annotate inter-session turns for model awareness
+
+---
+
 ## See Also
 
 - [Attack Surface Map](attack-surface-map.md)
@@ -459,3 +543,4 @@ Hook point: `tool-policy-pipeline.ts` as a new pipeline step.
 - [Sandboxing](/gateway/sandboxing)
 - [Sandbox vs Tool Policy vs Elevated](/gateway/sandbox-vs-tool-policy-vs-elevated)
 - [Secrets](/gateway/secrets)
+- [External Research Landscape](../../security/study/external-research-landscape.md)
