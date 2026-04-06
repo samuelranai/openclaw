@@ -47,6 +47,14 @@ They are not part of the official product documentation.
 
 ---
 
+## Security Working Plan
+
+| Document                                             | Purpose                                                                                                                                                               |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [security-working-plan.md](security-working-plan.md) | Near-term (1–2 month) and mid-term (3–6 month) roadmap across four workstreams: Plugin Trust, Credential Provider RFC, IAM identity model, and Supply Chain security. |
+
+---
+
 ## Implementation Proposals
 
 | Document                                                                                   | Purpose                                                                                                                                                  |
