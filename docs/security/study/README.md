@@ -49,9 +49,10 @@ They are not part of the official product documentation.
 
 ## Security Working Plan
 
-| Document                                             | Purpose                                                                                                                                                               |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [security-working-plan.md](security-working-plan.md) | Near-term (1–2 month) and mid-term (3–6 month) roadmap across four workstreams: Plugin Trust, Credential Provider RFC, IAM identity model, and Supply Chain security. |
+| Document                                                         | Purpose                                                                                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [security-wg-executive-brief.md](security-wg-executive-brief.md) | One-page executive summary: mission, problem statement, objectives, roadmap tables, and success metrics — for management review and approval.                 |
+| [security-working-plan.md](security-working-plan.md)             | Full working plan: three-stage roadmap (ongoing / planning / backlog) across four workstreams — Plugin Trust, Credential Provider RFC, IAM, and Supply Chain. |
 
 ---
 
