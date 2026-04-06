@@ -52,6 +52,7 @@ They are not part of the official product documentation.
 | Document                                                                                   | Purpose                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [proposal-content-inspection-interception.md](proposal-content-inspection-interception.md) | Hook architecture analysis and `before_dispatch`-based solution for inbound content inspection with LLM-assisted blocking and group-chat discrimination. |
+| [proposal-security-skill-scan-suppression.md](proposal-security-skill-scan-suppression.md) | Root-cause analysis and three-mechanism solution for legitimate security skills being flagged as suspicious/dangerous by the built-in static scanner.    |
 
 ---
 
