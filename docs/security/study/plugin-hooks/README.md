@@ -46,12 +46,11 @@ understand the four execution models and the global singleton established there.
 Practical multi-hook combination patterns for security plugin authors. Read Session 5
 and Session 7 first.
 
-| Document                                                                                         | Topic                                                                                        |
-| ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| [hardening-hook-combinations.md](hardening-hook-combinations.md)                                 | Analysis of why single hooks fail and the general shared-state bridge pattern                |
-| [hardening-combo-intercept.md](hardening-combo-intercept.md)                                     | Post-tool detection with interception: block result + prevent further tool calls             |
-| [hardening-combo-prompt-modify.md](hardening-combo-prompt-modify.md)                             | Post-tool detection with prompt modification: rewrite LLM instructions without blocking      |
-| [design-universal-confirm-and-result-rewrite.md](design-universal-confirm-and-result-rewrite.md) | Design: channel-agnostic confirmation gate + tool result content rewrite before LLM analysis |
+| Document                                                             | Topic                                                                                   |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [hardening-hook-combinations.md](hardening-hook-combinations.md)     | Analysis of why single hooks fail and the general shared-state bridge pattern           |
+| [hardening-combo-intercept.md](hardening-combo-intercept.md)         | Post-tool detection with interception: block result + prevent further tool calls        |
+| [hardening-combo-prompt-modify.md](hardening-combo-prompt-modify.md) | Post-tool detection with prompt modification: rewrite LLM instructions without blocking |
 
 ---
 
@@ -123,4 +122,3 @@ All 26 named hooks, their execution model, and the session where they are covere
 - [hardening-hook-combinations.md](hardening-hook-combinations.md) — multi-hook combination analysis (start here for security plugin design)
 - [hardening-combo-intercept.md](hardening-combo-intercept.md) — implementation: post-tool interception
 - [hardening-combo-prompt-modify.md](hardening-combo-prompt-modify.md) — implementation: post-tool prompt modification
-- [design-universal-confirm-and-result-rewrite.md](design-universal-confirm-and-result-rewrite.md) — design: channel-agnostic confirmation gate + result rewrite
