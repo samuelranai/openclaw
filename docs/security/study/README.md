@@ -31,6 +31,24 @@ They are not part of the official product documentation.
 
 ---
 
+## Plugin Hooks — Source Walkthrough Series
+
+Seven-session tutorial series covering all 26 plugin hooks: execution models, event/result shapes, merge strategies, call sites, and security implications — all grounded in source code.
+
+| Session | Document                                                                                              | Hooks Covered                                                                                                                                          |
+| ------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1       | [session1-hook-system-architecture.md](plugin-hooks/session1-hook-system-architecture.md)             | Foundation: PluginHookRegistration, global singleton, priority, four execution models, error handling                                                  |
+| 2       | [session2-agent-lifecycle-hooks.md](plugin-hooks/session2-agent-lifecycle-hooks.md)                   | `before_model_resolve`, `before_prompt_build`, `before_agent_start`, `llm_input`, `llm_output`, `agent_end`                                            |
+| 3       | [session3-compaction-reset-hooks.md](plugin-hooks/session3-compaction-reset-hooks.md)                 | `before_compaction`, `after_compaction`, `before_reset`                                                                                                |
+| 4       | [session4-message-flow-hooks.md](plugin-hooks/session4-message-flow-hooks.md)                         | `inbound_claim`, `message_received`, `before_dispatch`, `message_sending`, `message_sent`                                                              |
+| 5       | [session5-tool-execution-hooks.md](plugin-hooks/session5-tool-execution-hooks.md)                     | `before_tool_call`, `after_tool_call`, `tool_result_persist`, `before_message_write`                                                                   |
+| 6       | [session6-session-subagent-gateway-hooks.md](plugin-hooks/session6-session-subagent-gateway-hooks.md) | `session_start`, `session_end`, `subagent_spawning`, `subagent_spawned`, `subagent_delivery_target`, `subagent_ended`, `gateway_start`, `gateway_stop` |
+| 7       | [session7-security-analysis.md](plugin-hooks/session7-security-analysis.md)                           | Cross-cutting security analysis: trust model, attack surfaces, missing gates, defense-in-depth                                                         |
+
+Full index and 26-hook quick reference: [plugin-hooks/README.md](plugin-hooks/README.md)
+
+---
+
 ## External Research (2026 Papers)
 
 | Document                                                         | Purpose                                                                                                                                                                                                                                                         |
@@ -53,6 +71,14 @@ They are not part of the official product documentation.
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [security-wg-executive-brief.md](security-wg-executive-brief.md) | One-page executive summary: mission, problem statement, objectives, roadmap tables, and success metrics — for management review and approval.                 |
 | [security-working-plan.md](security-working-plan.md)             | Full working plan: three-stage roadmap (ongoing / planning / backlog) across four workstreams — Plugin Trust, Credential Provider RFC, IAM, and Supply Chain. |
+
+---
+
+## Case Studies
+
+| Document                                                   | Purpose                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [case-skill-scan-flagging.md](case-skill-scan-flagging.md) | End-to-end analysis of the "Skill flagged" label: which of the two scan systems fires, why results are non-deterministic, what information is actually available, and what the path forward looks like. Includes factual assessment of a Gemini-generated developer guide against the actual codebase. |
 
 ---
 

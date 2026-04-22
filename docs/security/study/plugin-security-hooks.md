@@ -133,42 +133,57 @@ is a soft gate (nothing stops a plugin from checking the global directly).
 
 ## 4. Hook system
 
-Plugins register hooks via `PluginHookHandlerMap`. There are 23 named hooks:
+Plugins register hooks via `PluginHookHandlerMap`. The `PluginHookName` union in
+`src/plugins/types.ts` defines **26 named hooks**. (`before_skill_install`, discussed in
+Part 2, is a design proposal — it is **not present** in the current source and has not
+shipped as of this writing.)
 
-| Hook                                     | Category            | Result power                                 |
-| ---------------------------------------- | ------------------- | -------------------------------------------- |
-| `before_model_resolve`                   | Agent lifecycle     | Can substitute model/provider                |
-| `before_prompt_build`                    | Agent lifecycle     | Can inject system/user prompt text           |
-| `before_agent_start`                     | Agent lifecycle     | Can add startup context                      |
-| `llm_input` / `llm_output`               | Agent lifecycle     | Read-only                                    |
-| `agent_end`                              | Agent lifecycle     | Read-only                                    |
-| **`before_tool_call`**                   | Tool execution      | **Block · modify params · require approval** |
-| `after_tool_call`                        | Tool execution      | Read-only                                    |
-| `message_received`                       | Message flow        | Read-only                                    |
-| `message_sending`                        | Message flow        | Can modify or cancel outbound content        |
-| `message_sent`                           | Message flow        | Read-only                                    |
-| `inbound_claim`                          | Channel routing     | Can claim message for a plugin channel       |
-| `before_dispatch`                        | Message dispatch    | Can modify target or content                 |
-| `session_start` / `session_end`          | Session lifecycle   | Read-only                                    |
-| `subagent_spawning`                      | Subagent lifecycle  | Can affect spawn                             |
-| `subagent_delivery_target`               | Subagent lifecycle  | Can override delivery target                 |
-| `gateway_start` / `gateway_stop`         | Gateway lifecycle   | Read-only                                    |
-| **`before_message_write`**               | Message persistence | **Can block or rewrite transcript entry**    |
-| `tool_result_persist`                    | Tool results        | Can rewrite persisted result                 |
-| `before_compaction` / `after_compaction` | Compaction          | Read-only                                    |
-| `before_reset`                           | Session reset       | Read-only                                    |
-| **`before_skill_install`**               | Install gate        | **Block · augment findings**                 |
+| Hook                       | Category            | Exec model               | Reads payload?                   | Write / Modify?                    | Block?                        | Require approval? | Quarantine / Rollback? |
+| -------------------------- | ------------------- | ------------------------ | -------------------------------- | ---------------------------------- | ----------------------------- | ----------------- | ---------------------- |
+| `before_model_resolve`     | Agent lifecycle     | Modifying                | Yes — model/provider config      | Yes — substitute model or provider | No                            | No                | No                     |
+| `before_prompt_build`      | Agent lifecycle     | Modifying                | Yes — prompt being built         | Yes — inject system/user text      | No                            | No                | No                     |
+| `before_agent_start`       | Agent lifecycle     | Modifying                | Yes — startup context            | Yes — add startup context          | No                            | No                | No                     |
+| `llm_input`                | Agent lifecycle     | Void                     | Yes — full LLM input             | No                                 | No                            | No                | No                     |
+| `llm_output`               | Agent lifecycle     | Void                     | Yes — full LLM response          | No                                 | No                            | No                | No                     |
+| `agent_end`                | Agent lifecycle     | Void                     | Yes — final agent state          | No                                 | No                            | No                | No                     |
+| **`before_tool_call`**     | Tool execution      | **Modifying**            | **Yes — tool name + all params** | **Yes — rewrite params**           | **Yes**                       | **Yes**           | No                     |
+| `after_tool_call`          | Tool execution      | Void                     | Yes — tool result                | No                                 | No                            | No                | No                     |
+| `message_received`         | Message flow        | Void                     | Yes — inbound message            | No                                 | No                            | No                | No                     |
+| `message_sending`          | Message flow        | Modifying                | Yes — outbound message           | Yes — modify content               | Yes — cancel send             | No                | No                     |
+| `message_sent`             | Message flow        | Void                     | Yes — sent message               | No                                 | No                            | No                | No                     |
+| `inbound_claim`            | Channel routing     | Claiming                 | Yes — inbound message            | Yes — claim routing                | No                            | No                | No                     |
+| `before_dispatch`          | Message dispatch    | **Claiming**             | Yes — target + content           | Yes — modify target or content     | **Yes — via `handled: true`** | No                | No                     |
+| `session_start`            | Session lifecycle   | Void                     | Yes — session context            | No                                 | No                            | No                | No                     |
+| `session_end`              | Session lifecycle   | Void                     | Yes — session summary            | No                                 | No                            | No                | No                     |
+| `subagent_spawning`        | Subagent lifecycle  | Modifying                | Yes — spawn params               | Yes — affect spawn                 | No                            | No                | No                     |
+| `subagent_delivery_target` | Subagent lifecycle  | Modifying                | Yes — delivery target            | Yes — override target              | No                            | No                | No                     |
+| `subagent_spawned`         | Subagent lifecycle  | Void                     | Yes — spawn result               | No                                 | No                            | No                | No                     |
+| `subagent_ended`           | Subagent lifecycle  | Void                     | Yes — end state                  | No                                 | No                            | No                | No                     |
+| `gateway_start`            | Gateway lifecycle   | Void                     | Yes — gateway config             | No                                 | No                            | No                | No                     |
+| `gateway_stop`             | Gateway lifecycle   | Void                     | Yes — shutdown context           | No                                 | No                            | No                | No                     |
+| **`before_message_write`** | Message persistence | **Sync**                 | **Yes — transcript entry**       | **Yes — rewrite entry**            | **Yes**                       | No                | No                     |
+| `tool_result_persist`      | Tool results        | **Sync**                 | Yes — persisted result           | Yes — rewrite result               | No                            | No                | No                     |
+| `before_compaction`        | Compaction          | Void                     | Yes — pre-compact state          | No                                 | No                            | No                | No                     |
+| `after_compaction`         | Compaction          | Yes — post-compact state | No                               | No                                 | No                            | No                |
+| `before_reset`             | Session reset       | Void                     | Yes — reset context              | No                                 | No                            | No                | No                     |
 
-**Hook execution model:**
+**Hook execution models:**
 
-- Hooks run sequentially (registration order, then priority within each plugin).
+Four distinct models govern how hook handlers run:
+
+| Model         | Runner             | Execution              | Async? | Interception                                                            |
+| ------------- | ------------------ | ---------------------- | ------ | ----------------------------------------------------------------------- |
+| **Void**      | `runVoidHook`      | Parallel (Promise.all) | Yes    | None — return values discarded                                          |
+| **Claiming**  | `runClaimingHook`  | Sequential by priority | Yes    | First `{ handled: true }` wins; remaining handlers skipped              |
+| **Modifying** | `runModifyingHook` | Sequential by priority | Yes    | Results merged across chain; `block: true` is sticky and short-circuits |
+| **Sync**      | inline sync loop   | Sequential             | **No** | Block via `block: true`; async handlers warned and ignored              |
+
+Additional rules:
+
 - Higher `priority` value runs first.
-- Errors in a hook are caught, logged, and do not propagate to lower hooks.
-- The first hook returning `block: true` short-circuits the rest of the chain.
-- Read-only hooks always see the original event — they cannot modify it.
-- Modifying hooks (`before_tool_call`, `before_skill_install`,
-  `before_message_write`, etc.) pass their output as the next hook's input (params
-  accumulate across the chain until a block or `requireApproval` owner is set).
+- Errors are caught and logged; they do not propagate to lower-priority handlers.
+- For `before_tool_call` (Modifying): once any handler sets `requireApproval`, lower-priority handlers cannot add a second gate — first-set-wins. Param rewrites from lower-priority plugins are frozen once approval is claimed.
+- `before_message_write` and `tool_result_persist` are **synchronous only** — they run on the transcript hot path. Do not register async handlers for these hooks.
 
 **Hook registration:**
 
@@ -214,7 +229,7 @@ These checks prevent:
 
 **Gap:** The checks happen at discovery time, before `import()`. Between
 discovery (stat + ownership check) and the actual `await import(source)` there
-is a small TOCTOU window. On a multi-user machine a hostile local user could
+is a small time-of-check/time-of-use window. On a multi-user machine a hostile local user could
 swap a file after the stat passes. The mitigation is that `mode & 0o002` prevents
 world-writable directories, so the only vector is a file owned by the same UID.
 
@@ -236,15 +251,21 @@ sandbox model:
 - Hooks with modify-or-block power run synchronously in the agent loop.
 
 The security boundary is **install-time**, not runtime. Once a plugin is
-installed, it is trusted. The `before_skill_install` hook is the proposed
-mechanism for enforcing install-time policy. This is a correct design choice
-for a developer tool where the operator controls the machine.
+installed, it is trusted. A `before_skill_install` hook is the proposed
+mechanism for enforcing install-time policy (see Part 2) — it has not yet
+shipped. This is a correct design direction for a developer tool where the
+operator controls the machine.
 
 ---
 
 # Part 2 — Security Hook Analysis and Design Proposals
 
-## 7. `before_skill_install` — design analysis
+## 7. `before_skill_install` — design analysis (proposed, not yet shipped)
+
+> **Implementation status:** `before_skill_install` is **not present** in the current
+> `PluginHookName` union (`src/plugins/types.ts`). The analysis below documents the
+> intended design. Cross-reference `proposal-security-skill-scan-suppression.md` for
+> how the existing scanner works in the absence of this hook.
 
 ### What it does
 
@@ -294,14 +315,14 @@ block all skill installs.
 
 **C1 — No verification of `sourceDir` integrity.**
 Between the time `sourceDir` is passed to the hook and when the actual file
-copy happens, the directory contents can change (TOCTOU). A hostile skill source
+copy happens, the directory contents can change (time-of-check/time-of-use race). A hostile skill source
 that is a symlink to a benign tree during scan but swapped before copy would
 bypass the scanner. Mitigation: the install layer should compute a content hash
 of the files it scanned and verify that hash matches the files it actually copies.
 
 _Proposal:_ After the hook runs (and before file copy), compute a SHA-256 hash
 of every file in `sourceDir` and store it. After copy, verify the hashes match.
-If they diverge, fail the install with `INSTALL_TOCTOU_DETECTED`.
+If they diverge, fail the install with `INSTALL_TIME_OF_CHECK_DETECTED`.
 
 **C2 — `builtinFindings` is informational only; cannot suppress.**
 A hook cannot downgrade a built-in `critical` finding. If the built-in scanner
@@ -561,33 +582,40 @@ receiving the tarball path and the parsed manifest. A security plugin can:
 
 The `declaredCapabilities` fields are computed from the manifest — they do not
 require executing any plugin code. This makes the hook safe to run before
-installation without a TOCTOU risk.
+installation without a time-of-check/time-of-use risk.
 
 ---
 
-## 11. Summary: the two hooks as a security system
+## 11. Summary: security hooks as a system
 
 ```
-Install time                          Runtime
+Install time (proposed)               Runtime (shipped)
 ──────────────────────────────────    ──────────────────────────────────────
-before_skill_install                  before_tool_call + requireApproval
+before_skill_install [NOT YET SHIPPED] before_tool_call + requireApproval
   ↓                                     ↓
 Source dir available for scanning     All tool params available before exec
 Built-in findings forwarded           Can rewrite, block, or pause for approval
 Block is terminal (pre-copy)          Block is terminal (pre-exec)
 Non-fatal: scanner errors don't       Non-fatal: hook errors don't block tool
-  block all installs
-Missing: npm postinstall gap          Missing: multi-approval, allow-always veto
-Missing: plugin install hook          Missing: before_plugin_install
+  block all installs                    (fail-open by default)
+Gap: npm postinstall runs before hook Gap: multi-approval (first-set-wins only)
+Gap: no plugin install hook           Gap: no before_plugin_install
+                                      Gap: allow-always veto not supported
+
+Current install-time protection (no hook):
+  static scanner in skills-install.ts + audit-extra.async.ts
+  — use proposal-security-skill-scan-suppression.md for suppression design
 ```
 
-Together these hooks give an external security plugin two interception points
-across the full capability lifecycle: preventing dangerous code from entering the
-system at install time, and preventing dangerous actions from executing at runtime.
+The shipped runtime gate (`before_tool_call`) covers all three tool dispatch
+surfaces (WS agent, HTTP `/tools/invoke`, `node.invoke`). The install-time gate
+(`before_skill_install`) is the most important missing piece — until it ships,
+the static scanner is the only install-time defense, with no plugin extensibility.
 The architectural choice to give each hook full access to its decision point is
-correct. The remaining work is to close the gaps noted above — particularly the
-TOCTOU gap in skill install, the missing `before_plugin_install` hook, and the
-multi-approval limitation in `before_tool_call`.
+correct. The remaining work is to ship `before_skill_install`, close the
+time-of-check/time-of-use gap in skill install, add `before_plugin_install`,
+and address the multi-approval
+limitation in `before_tool_call`.
 
 ---
 

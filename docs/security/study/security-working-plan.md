@@ -1,6 +1,6 @@
 ---
 title: "OpenClaw Security Working Plan — Ongoing and Planning Roadmap"
-summary: "Security WG working plan: goals, task roadmap, and workstream details across Plugin Trust Model, Credential Provider RFC, IAM identity model, and Supply Chain security"
+summary: "Security WG working plan: problem statement, objectives, task roadmap, expected outcomes, and risks across Plugin Trust Model, Credential Provider RFC, IAM identity model, and Supply Chain security"
 status: draft
 ---
 
@@ -17,7 +17,45 @@ identity and access control, and supply chain integrity.
 
 ---
 
-## Roadmap at a Glance
+## Problem Statement
+
+OpenClaw is widely adopted as a personal and team productivity platform, and is
+now entering enterprise environments where security guarantees, auditability, and
+access control become baseline requirements. Four structural gaps must be closed
+to make enterprise-grade deployment viable:
+
+| Workstream       | Problem Summary                                                                                                                                                                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Plugin Trust** | All plugins run with identical in-process privilege. No enforcement boundary separates a security enforcer plugin from a compromised one. Once a malicious plugin is identified, there is no runtime mechanism to revoke it without a full gateway restart. |
+| **Credentials**  | The current `SecretRef` system (`env`/`file`/`exec`) cannot manage token lifecycle: no refresh, no rotation event handling, no federated identity (SPIFFE/OIDC). Enterprise credential buses require a plugin-extensible provider model.                    |
+| **IAM**          | There is no built-in sender identity model. Tool and resource access cannot be scoped by role, team, or group membership. In group-chat deployments, all participants share a single session key — tool state and history are not isolated per sender.      |
+| **Supply Chain** | The static scanner produces false positives on legitimate security skills (e.g., any tool spawning `nmap` is flagged critical). There is no signing, provenance, or tamper detection on installed skills and plugins.                                       |
+
+For detailed technical analysis of each workstream, see the [Plan Details](#plan-details) section.
+
+---
+
+## Objectives
+
+1. **Establish a plugin enforcement tier** — define and ship a trust model that allows
+   designated security plugins to enforce policy (block tool calls, block installs) while
+   being protected from subversion by lower-trust plugins or LLM-triggered actions.
+
+2. **Enable enterprise credential management** — deliver a plugin-extensible credential
+   provider API (RFC #59165) that supports token refresh, rotation events, federated
+   identity, and structured audit trails — replacing `exec`-based credential workarounds.
+
+3. **Introduce sender identity and access control** — add a built-in `SenderIdentity`
+   model enabling team-scoped tool policies, per-sender group context in hook plugins,
+   and a foundation for RBAC in enterprise deployments.
+
+4. **Harden supply chain integrity** — unblock security skill developers by shipping
+   scan suppression today, and lay the groundwork for skill/plugin signing, provenance
+   receipts, and registry-level security checks.
+
+---
+
+## Roadmap
 
 ### Ongoing Short-Term Tasks
 
@@ -55,34 +93,90 @@ design alignment before implementation begins.
 | T13 | Supply Chain | AST-level and custom scanner rules          | Eng    | T02        |
 | T14 | Supply Chain | Pre-download scan for npm-sourced skills    | Eng    | T02        |
 
-### Goal Mid/Long Term
+### Goal Mid/Long Term — Backlog
 
-Larger architectural work and strategic goals. Require earlier stages to land and
-involve more complex design or external coordination.
+Larger architectural work requiring earlier stages to land. Listed for awareness;
+not actively scheduled until near-term tasks complete.
 
-| ID  | Workstream   | Task                                              | Type   | Depends on |
-| --- | ------------ | ------------------------------------------------- | ------ | ---------- |
-| T16 | Plugin Trust | Watcher process API                               | Design | T15        |
-| T17 | Plugin Trust | `before_plugin_install` hook                      | Eng    | T15        |
-| T18 | Plugin Trust | Network egress policy hook                        | Eng    | T15        |
-| T21 | Credentials  | Vault reference credential provider plugin        | Eng    | T20        |
-| T22 | Credentials  | Credential handling security audit                | Audit  | T20        |
-| T23 | IAM          | IAM full specification document                   | Design | T08        |
-| T24 | IAM          | LDAP / OIDC external IdP integration              | Eng    | T23        |
-| T25 | IAM          | RBAC-lite: resource-scoped access control         | Eng    | T23        |
-| T26 | IAM          | Session-scoped identity (prevent escalation)      | Eng    | T23        |
-| T27 | IAM          | `groupScope`: per-sender session partitioning     | Eng    | T11        |
-| T28 | IAM          | Group role model (replace binary `senderIsOwner`) | Eng    | T11        |
-| T29 | Supply Chain | Skill and plugin signing scheme                   | Design | T02        |
-| T30 | Supply Chain | Provenance receipt (`.scan-receipt.json`)         | Eng    | T02        |
-| T31 | Supply Chain | ClawHub registry: scan summaries + signing UI     | Design | T29        |
-| T32 | Supply Chain | Supply chain scanner plugin capability            | Eng    | T15, T17   |
+| ID  | Workstream   | Task                                                           | Depends on |
+| --- | ------------ | -------------------------------------------------------------- | ---------- |
+| T16 | Plugin Trust | Watcher process API (external security monitoring)             | T15        |
+| T17 | Plugin Trust | `before_plugin_install` hook                                   | T15        |
+| T18 | Plugin Trust | Network egress policy hook                                     | T15        |
+| T21 | Credentials  | Vault reference credential provider plugin                     | T20        |
+| T22 | Credentials  | Credential handling security audit                             | T20        |
+| T23 | IAM          | IAM full specification document                                | T08        |
+| T24 | IAM          | LDAP / OIDC external IdP integration                           | T23        |
+| T25 | IAM          | RBAC-lite: resource-scoped access control                      | T23        |
+| T26 | IAM          | Session-scoped identity (prevent mid-session escalation)       | T23        |
+| T27 | IAM          | `groupScope`: per-sender session partitioning                  | T11        |
+| T28 | IAM          | Group role model (replace binary `senderIsOwner`)              | T11        |
+| T29 | Supply Chain | Skill and plugin signing scheme                                | T02        |
+| T30 | Supply Chain | Provenance receipt (`.scan-receipt.json`) for tamper detection | T02        |
+| T31 | Supply Chain | ClawHub registry: scan summaries + signing UI                  | T29        |
+| T32 | Supply Chain | Supply chain scanner plugin capability (OSV, Snyk, npm audit)  | T15, T17   |
 
 ---
 
-## Workstream 1 — Plugin Trust Model
+## Expected Outcomes
 
-### Problem
+### Value of Collaboration with OpenClaw
+
+This work plan represents a joint effort between our security team and the OpenClaw
+open-source community. The expected outcomes from this collaboration are:
+
+- **Security plugins become first-class citizens** — partner security teams can ship
+  enforcement plugins that reliably block threats, with a trust model that the OpenClaw
+  community and enterprise customers can verify and depend on.
+- **Enterprise credential workflows are supported natively** — customers currently
+  working around `SecretRef` limitations with fragile `exec` scripts gain a structured,
+  auditable, lifecycle-aware credential provider API contributed upstream.
+- **Group-chat and multi-team deployments become safe** — adding sender identity and
+  per-sender policy closes the gap that today forces enterprise teams to restrict OpenClaw
+  to single-user deployments or accept unscoped tool access in group channels.
+- **Security skill development is unblocked** — scan suppression (T12) lands immediately,
+  removing the false-positive barrier that currently prevents security teams from
+  publishing and sharing skills in ClawHub.
+- **OpenClaw positions itself as enterprise-ready** — the combination of enforcement
+  hooks, credential provider, identity model, and supply chain hardening gives enterprise
+  security teams the controls they need to approve OpenClaw for production deployment.
+
+### KPIs for Successful Delivery
+
+| KPI                                                   | Target                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------- |
+| Partner security team feedback collected (Q1–Q3)      | Completed before 4/11                                       |
+| Trust model decision memo approved by WG              | By end of Ongoing Short-Term phase                          |
+| `before_skill_install` hook shipped and merged        | By end of Ongoing Short-Term phase                          |
+| Scan suppression M1 + M2 shipped                      | By end of Ongoing Short-Term phase                          |
+| False-positive rate on legitimate security skills     | Zero unacknowledged critical/warn findings after T12 lands  |
+| Enforcement hook tier available and documented        | By end of Planning Near-Term phase                          |
+| Credential Provider RFC merged and SDK API published  | By end of Planning Near-Term phase                          |
+| Security plugin deployable with block semantics       | At least one partner security plugin using enforcement tier |
+| Enterprise deployment with identity-based tool policy | First customer pilot during Planning Near-Term phase        |
+| WG weekly meeting cadence maintained                  | Zero consecutive missed syncs; action items tracked         |
+
+---
+
+## Risks and Mitigation
+
+| Risk                                                                       | Likelihood | Impact                                              | Mitigation                                                                                                                   |
+| -------------------------------------------------------------------------- | ---------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Trust model decision stalls in WG debate (T01)                             | Medium     | High — blocks T03, T15, and all enforcement work    | Time-box WG discussion; escalate to maintainers if no convergence by 4/11; default to enterprise policy gate as fallback     |
+| `before_skill_install` hook is re-scoped or deferred again (T02)           | Medium     | High — blocks T12–T14, T29–T32                      | Assign dedicated owner; track as a milestone in WG weekly; link to supply chain gaps to signal urgency                       |
+| RFC #59165 partner feedback reveals API redesign needed (T06)              | Low        | Medium — delays credential workstream by one cycle  | Publish RFC early with clear feedback deadline; design API with extension points to absorb scope changes without full rework |
+| Enforcement tier config demoted to advisory-only due to community pushback | Low        | High — negates security value of plugin trust model | Frame as opt-in operator config (off by default); document clearly that enforcement requires explicit operator enablement    |
+| IAM identity model creates migration friction for existing deployments     | Medium     | Medium — slows adoption                             | Design as additive and progressive — deployments without identity config continue working unchanged                          |
+| Security skill false positives not fixed quickly enough (T12)              | Low        | Medium — partner security teams lose confidence     | T12 has no blocking dependencies; can ship independently of all other workstreams                                            |
+| External dependency: ClawHub registry integration timeline unknown (T31)   | High       | Low — affects mid/long-term only                    | T31 is backlog; no short-term dependency; flag early to ClawHub team as a planning input                                     |
+
+---
+
+## Plan Details
+
+Detailed technical analysis, design decisions, and task breakdowns for each workstream.
+
+### Workstream 1 — Plugin Trust Model
 
 OpenClaw's plugin system has no privilege tiers. All loaded plugins run in-process
 with operator-level trust. This is correct for the current personal-use trust model,
@@ -93,354 +187,99 @@ but creates a structural problem for enterprise security deployments:
 - Hook primitives exist (`before_tool_call`, `before_dispatch`) but any plugin can
   register them — there is no mechanism to reserve enforcement semantics for trusted
   plugins only.
+- Once a malicious plugin is discovered, the operator has no way to revoke it without
+  restarting the gateway.
 
-Additionally, once a malicious plugin is discovered, the operator has no way to
-revoke it without restarting the gateway.
+**WG Open Topics**
 
-### WG Open Topics
+_Topic 0 — Foundational Trust and Security Policy (T01, T05)_
 
-**Topic 0 — Foundational Trust and Security Policy (T01, T05)**
+Three operational gaps to close regardless of which trust model is chosen: (1) runtime
+disablement — terminate a plugin's registrations without gateway restart; (2) built-in
+plugin override — quarantine a bundled plugin via config without binary rebuild;
+(3) enforcement plugin self-protection — shield enforcement-tier plugins from being
+disabled by lower-trust plugins or LLM-triggered tool calls.
 
-Three specific operational gaps to close regardless of which trust model is chosen:
+_Topic 1 — Who Gets to Run Security Plugins? (T01, T03)_
 
-1. **Runtime disablement** — `openclaw plugins disable <id> --immediate` must terminate
-   a plugin's hook registrations in the running process without a gateway restart.
-2. **Built-in plugin override** — a config key to quarantine a bundled plugin without
-   rebuilding the binary.
-3. **Enforcement plugin self-protection** — enforcement-tier plugins must be shielded
-   from being disabled by lower-trust plugins or by LLM-triggered tool calls.
+Three candidate models under WG review:
 
-These are operational requirements, not vulnerability reports. They belong in the
-active roadmap regardless of reporting scope policy.
+| Model                  | Strength                    | Weakness                                         |
+| ---------------------- | --------------------------- | ------------------------------------------------ |
+| Vendor attestation     | Strong chain of custody     | PKI infrastructure; blocks community tools       |
+| Enterprise policy gate | Operator-controlled; no PKI | Trust is config, not code — can be misconfigured |
+| Curated registry       | Balanced                    | Centralized; latency for new security tools      |
 
-**Topic 1 — Who Gets to Run Security Plugins? (T01, T03)**
+WG recommendation: Enterprise policy gate (`plugins.securityHooks.allowedPluginIds`)
+as the initial path; OpenClaw-operated signing service as the upgrade path (analogous
+to [Windows driver signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/driver-signing)).
+Tiered privilege model (Enforcement / Verified / Community) applies regardless of
+which signing model is chosen.
 
-Three candidate trust models are under WG review:
+_Topic 2 — Do Hook Primitives Cover Security Needs? (T02, T04)_
 
-| Model                  | Description                                     | Strength                    | Weakness                                         |
-| ---------------------- | ----------------------------------------------- | --------------------------- | ------------------------------------------------ |
-| Vendor attestation     | Signed plugin, verified publisher, revocation   | Strong chain of custody     | PKI infrastructure; blocks community tools       |
-| Enterprise policy gate | Org-wide allowlist for plugin IDs/publishers    | Operator-controlled; no PKI | Trust is config, not code — can be misconfigured |
-| Curated registry       | Higher review bar + signing for ClawHub updates | Balanced                    | Centralized; latency for new security tools      |
+| Hook                    | Status                                         |
+| ----------------------- | ---------------------------------------------- |
+| `before_dispatch`       | ✅ Claiming hook; awaited; `isGroup` present   |
+| `before_tool_call`      | ✅ Shipped; modifying hook with `block`        |
+| `before_skill_install`  | ⚠️ Not in `PluginHookName` union — not shipped |
+| `before_compaction`     | ⚠️ Void only — cannot block                    |
+| `before_plugin_install` | ❌ Does not exist                              |
+| `llm_input`             | ⚠️ Void — cannot block                         |
+| Network egress          | ❌ Does not exist                              |
 
-WG recommendation under discussion:
-
-- **Initial path:** Enterprise policy gate (`plugins.securityHooks.allowedPluginIds`)
-  for operator-controlled deployments; no PKI required.
-- **Upgrade path:** OpenClaw-operated signing service (analogous to
-  [Windows driver signing](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/driver-signing))
-  — CA issues attestations; vendors submit for scanning; revocation is centralized.
-- **UX:** Dedicated "Security Vendors" tab on ClawHub rather than mixing security
-  plugins with general plugins.
-- **Enterprise policy override** applies broadly to all plugins (not just security
-  plugins) and works as a complement to, not a replacement for, the attestation model.
-
-Tiered privilege (necessary regardless of signing model):
-
-| Tier        | Qualifies when                          | Hook access                      | Priority |
-| ----------- | --------------------------------------- | -------------------------------- | -------- |
-| Enforcement | OpenClaw-signed OR operator-allowlisted | All hooks; `block` semantics     | Highest  |
-| Verified    | Vendor-signed (not yet OpenClaw CA)     | Modifying hooks; no exec `block` | High     |
-| Community   | Unsigned; operator opt-in               | Read-only (void hooks)           | Low      |
-
-**Topic 2 — Do Hook Primitives Cover Security Needs? (T02, T04)**
-
-Current hook coverage analysis (from [plugin-security-hooks.md](plugin-security-hooks.md)):
-
-| Hook                    | Security capability                             | Status                                         |
-| ----------------------- | ----------------------------------------------- | ---------------------------------------------- |
-| `before_dispatch`       | Block/intercept inbound messages; group context | ✅ Claiming hook; awaited; `isGroup` present   |
-| `before_tool_call`      | Block tool execution; require approval          | ✅ Shipped; modifying hook with `block`        |
-| `before_skill_install`  | Block skill install before file copy            | ⚠️ Not in `PluginHookName` union — not shipped |
-| `before_compaction`     | Observe context before compaction               | ⚠️ Void only — cannot block                    |
-| `before_plugin_install` | Block plugin installation                       | ❌ Does not exist                              |
-| `llm_input`             | Inspect prompt before LLM call                  | ⚠️ Void — cannot block                         |
-| Network egress          | Restrict plugin outbound calls                  | ❌ Does not exist                              |
-
-### Ongoing Short-Term Tasks
-
-**T01 — Trust model decision memo (WG)**
-Produce a decision memo selecting the enforcement model, defining the minimum bar for
-a plugin to register enforcement hooks, and documenting the failure posture (default
-fail-closed once enforcement tier is configured). Input needed from partner security
-teams before 4/11.
-
-**T02 — Ship `before_skill_install` hook**
-The hook was proposed in PR #56050 but is absent from the current `PluginHookName`
-union. Must be implemented as a modifying hook (not claiming), with `block: true`
-terminal semantics and a TOCTOU file-hash check after the hook returns.
-See [plugin-security-hooks.md](plugin-security-hooks.md) for the full API design.
-
-**T04 — Hook execution semantics spec**
-Produce a short specification covering: per-hook timeout behavior, deterministic
-priority ordering, precedence rules (`block` is terminal, `requireApproval` pauses
-only when not blocked), and cross-call state scope for STAC detection.
-
-**T05 — Runtime plugin disablement + self-protection**
-Implement: `openclaw plugins disable <id> --immediate` (terminates registrations in
-running process); `plugins.builtinOverrides.<id>: disabled` config key (quarantine
-bundled plugins without binary rebuild); protection of enforcement-tier plugins from
-being disabled via in-process API or LLM tool calls.
-
-### Planning Near-Term Tasks
-
-**T03 — Enforcement hook tier config key**
-Add `plugins.securityHooks.allowedPluginIds: string[]` to the config schema. Plugins
-not on this list have their hooks demoted to advisory (void) semantics at registration
-time, not at call time. This is the minimum viable enforcement boundary before a full
-signing model is available. Depends on T01 trust model decision.
-
-**T15 — Enforcement hook tier shipped and documented**
-All decisions from T01 and T03 land in code. Operator UX: `openclaw plugins status
---trust-level` shows each plugin's current trust tier and hook access.
-
-### Goal Mid/Long Term
-
-**T16 — Watcher process API**
-A "Watcher" external-process model for security monitoring decoupled from in-process
-hooks. Design decisions: observation interface (read-only event stream vs.
-bi-directional control), watcher authentication, event scope, and deployment model.
-
-**T17 — `before_plugin_install` hook**
-Equivalent gate for plugin (extension) installation. Fires before any files are
-copied from a plugin package. A security plugin can block installation of
-untrusted/unsigned plugins.
-See [plugin-security-hooks.md](plugin-security-hooks.md) §10 for the design
-boundaries and abuse resistance analysis applicable to this hook.
-
-**T18 — Network egress policy hook**
-A `before_network_egress` hook (or OPA/WASM policy check) that fires before any
-outbound HTTP/WebSocket call made by a plugin or tool, enabling data exfiltration
-interception at the transport layer.
+See [plugin-security-hooks.md](plugin-security-hooks.md) for full design analysis.
 
 ---
 
-## Workstream 2 — Credential Provider Plugin (RFC #59165)
+### Workstream 2 — Credential Provider Plugin (RFC #59165)
 
-### Problem
+The current `SecretRef` system (`env` / `file` / `exec`) cannot handle credential
+lifecycle scenarios enterprise deployments require: token refresh, rotation push events,
+federated identity (SPIFFE/OIDC), structured audit trails, or org-wide credential bus
+routing. A new `"plugin"` source extends `SecretRefSource` with a plugin-registered
+`resolve(event)` callback and gateway-managed token refresh lifecycle.
 
-The current `SecretRef` system supports three sources (`env`, `file`, `exec`).
-While `exec` can wrap vault CLIs, it cannot handle credential lifecycle scenarios
-that enterprise deployments require:
+Security constraint: only plugins in `plugins.securityHooks.allowedPluginIds` may
+register credential providers. Values are in-memory only — never written to config,
+logs, or telemetry.
 
-| Scenario                         | Gap                                                         |
-| -------------------------------- | ----------------------------------------------------------- |
-| Short-lived tokens (OAuth2/OIDC) | No token lifecycle management; no refresh                   |
-| Credential rotation events       | Cannot receive push rotation — only poll via `exec`         |
-| Federated identity (SPIFFE)      | Not supported; requires custom `exec` wrapper script        |
-| Secret access audit trail        | `exec` output is opaque to OpenClaw's audit path            |
-| Enterprise credential bus        | Per-gateway config; no org-wide routing to enterprise vault |
-
-See [src/config/types.secrets.ts](../../../src/config/types.secrets.ts) for current
-`SecretRefSource` implementation.
-
-### Design Direction
-
-A new `"plugin"` source extends `SecretRefSource`. A plugin registered as a
-credential provider exposes a `resolve(event)` callback; the gateway calls it at
-credential-fetch time and manages refresh before token expiry.
-Full API design in the RFC; detailed TypeScript types to be produced in T07.
-
-Security constraints: only plugins in `plugins.securityHooks.allowedPluginIds` may
-register credential providers. Credential values are never written to config files,
-logs, or telemetry — in-memory only.
-
-### Ongoing Short-Term Tasks
-
-**T06 — RFC #59165 partner review**
-Publish the RFC for partner security team input on three questions: (1) does the
-`"plugin"` source model cover your token-refresh and federated-identity scenarios?
-(2) what trust tier do you require for a credential-handling plugin? (3) what audit
-and observability requirements does your compliance team have for credential access?
-
-### Planning Near-Term Tasks
-
-**T07 — Credential Provider API design**
-Document the full API contract: `CredentialResolveEvent` fields, caching model
-(per-session / global with TTL), error handling (fail-closed on provider unavailable),
-and refresh semantics (`expiresAt` triggers proactive re-resolve). Depends on T06
-partner feedback.
-
-**T19 — `"plugin"` SecretRefSource implementation**
-Land the new source in `types.secrets.ts`, `zod-schema.core.ts`, the resolver, and
-audit checks. Depends on T06 and T07.
-
-**T20 — Plugin SDK `registerCredentialProvider` API**
-Add to the public Plugin SDK surface with TypeScript types, error handling contract,
-and refresh semantics documentation. Depends on T19.
-
-### Goal Mid/Long Term
-
-**T21 — Vault reference credential provider plugin**
-A bundled or closely maintained plugin integrating HashiCorp Vault (and AWS Secrets
-Manager as a second backend). Demonstrates the full lifecycle: resolve → refresh →
-expiry → audit token.
-
-**T22 — Credential handling security audit**
-Audit the full credential resolution path for: in-memory-only residency, timing of
-resolution, and plugin isolation (can a credential provider observe secrets belonging
-to other plugins?).
+See [src/config/types.secrets.ts](../../../src/config/types.secrets.ts) for the
+current `SecretRefSource` implementation and RFC #59165 for the full proposal.
 
 ---
 
-## Workstream 3 — IAM: Identity and Access Control
+### Workstream 3 — IAM: Identity and Access Control
 
-### Problem
+There is no built-in concept of who is sending a message beyond a channel-derived
+`senderId` and a boolean authorized flag. The IAM model adds policy richness within
+the existing single-operator trust boundary — it does not replace the operator model
+or create OS-level per-user isolation.
 
-There is no built-in concept of _who_ is sending a message beyond `senderId` (a
-channel-derived string) and a boolean `CommandAuthorized` flag. Enterprise deployments
-cannot express policies like "Team A can use tools X and Y; Team B can only use Z" or
-"messages from verified employees get exec approval; guests do not."
-
-The IAM model extends — rather than replaces — SECURITY.md's operator-trust model.
-It adds policy richness within a single-operator boundary; it does not create OS-level
-per-user isolation (still out of scope for shared-gateway multi-tenancy).
-
-### Group-Chat Security Gaps
-
-The current "one-user trusted-operator" model has five structural gaps in group-chat
-deployments where multiple senders share a session:
+**Group-chat security gaps** (five structural gaps in multi-sender group deployments):
 
 | Gap | Description                                                                                  |
 | --- | -------------------------------------------------------------------------------------------- |
 | G1  | Group participants share one session key — tool state and history visible across all senders |
 | G2  | `senderIsOwner` is binary — no role gradation within groups                                  |
-| G3  | `toolsBySender` is static operator config — plugins cannot read or modify it at hook time    |
-| G4  | No `groupScope` equivalent — `dmScope` supports per-peer isolation; groups have none         |
-| G5  | `before_dispatch` carries `isGroup: boolean` but no stable `groupId` for multi-group policy  |
+| G3  | `toolsBySender` is static config — plugins cannot read or modify it at hook time             |
+| G4  | No `groupScope` — `dmScope` supports per-peer isolation; groups have none                    |
+| G5  | `before_dispatch` carries `isGroup` but no stable `groupId` for multi-group policy           |
 
-Even with `groupPolicy: "allowlist"` configured, a security plugin cannot observe
-group membership, per-sender session boundaries, or group identity at runtime.
-Tasks T11, T27, and T28 address these gaps.
-
-### Ongoing Short-Term Tasks
-
-**T11 — Group context exposed to hook plugins**
-Add `groupId` (stable group identifier) and `resolvedSenderPolicy` (the operator's
-`toolsBySender` resolved policy for this sender) to `PluginHookBeforeDispatchEvent`.
-The `groupId` patch is a 2-line additive change; can ship independently ahead of the
-full IAM model. Prerequisite for T27 and T28.
-
-### Planning Near-Term Tasks
-
-**T08 — Sender identity primitives**
-Extend inbound message context to carry structured `SenderIdentity` (stable canonical
-ID, operator-assigned roles, group memberships, source: `channel | external_idp |
-config_allowlist`). Resolution chain: channel-native ID → operator config mapping →
-external IdP → fallback to `senderId`.
-
-**T09 — Per-channel identity-based access policy**
-Extend `tools.policy` to support identity-based conditions (`sender.roles`,
-`sender.channel`). Evaluated in the existing `applyToolPolicyPipeline` via a new
-`identity` step. No breaking change to deployments that don't configure identity.
-Depends on T08.
-
-**T10 — `before_dispatch` identity enrichment**
-Pass resolved `SenderIdentity` into the `before_dispatch` event, enabling
-content-inspection plugins to make identity-aware blocking decisions. Depends on T08.
-
-### Goal Mid/Long Term
-
-**T23 — IAM full specification**
-Produce a specification covering: identity resolution pipeline, attributes schema,
-operator-vs-channel identity assertion, and identity lifecycle (session start,
-mid-session role change, session end). Depends on T08 primitives landing.
-
-**T24 — LDAP / OIDC external IdP integration**
-A plugin-based or config-based connector mapping channel sender IDs to enterprise
-identity attributes. Candidates: OpenLDAP / Active Directory, OIDC userinfo endpoint,
-custom `exec`-based resolver. Depends on T23.
-
-**T25 — RBAC-lite: resource-scoped access control**
-Apply identity-based access control to session operations (spawn sub-agents, read
-history), memory operations (write to `MEMORY.md`, trigger compaction), and plugin
-management (install/enable at runtime). Depends on T23.
-
-**T26 — Session-scoped identity**
-Bind identity attributes to session creation and enforce that tool policy matches
-the identity established at session start. Prevent mid-session identity escalation.
-Depends on T23.
-
-**T27 — `groupScope`: per-sender session partitioning**
-Add a `groupScope` config option (`shared` / `per-sender` / `per-role`) parallel to
-`dmScope`. Per-sender partitioning prevents group-chat session poisoning (one sender's
-tool state leaking to another's context). Prerequisite for per-sender RBAC in groups.
-Depends on T11.
-
-**T28 — Group role model enrichment**
-Replace the binary `senderIsOwner` flag with named operator-assigned roles
-(`senderRoles` in group config). Resolved role flows into `SenderIdentity.groups`
-for hook plugins and RBAC policy. Default behavior unchanged for existing deployments.
-Depends on T11.
+Tasks T11, T27, and T28 address these gaps progressively.
 
 ---
 
-## Workstream 4 — Supply Chain Security
+### Workstream 4 — Supply Chain Security
 
-### Problem
+The built-in static scanner applies regex pattern rules at install time. Four rules
+(`dangerous-exec`, `env-harvesting`, `potential-exfiltration`, `suspicious-network`)
+fire as critical/warn on any legitimate security tool that spawns processes, reads
+files, or calls a SIEM API. There is no suppression mechanism, no signing, and no
+tamper detection on installed files.
 
-The built-in static scanner applies pattern rules at install time and in `--deep`
-audit runs. Key gaps:
-
-| Gap                                 | Description                                                                            |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| False positives for security skills | `dangerous-exec`, `env-harvesting`, `potential-exfiltration` fire on any security tool |
-| No suppression mechanism            | No way to acknowledge a finding as intentional                                         |
-| No pre-download hook                | Malicious `postinstall` scripts run before `before_skill_install` can block            |
-| No cryptographic provenance         | No signing, no publisher identity, no tamper detection on installed files              |
-| `before_skill_install` not shipped  | Proposed in PR #56050; absent from current `PluginHookName` union                      |
-| No customizable rule set            | Security teams cannot add YARA / AST rules or suppress by policy                       |
-
-Full analysis and M1/M2/M3 suppression mechanism design in
+Full analysis and M1/M2/M3 suppression design in
 [proposal-security-skill-scan-suppression.md](proposal-security-skill-scan-suppression.md).
-
-### Ongoing Short-Term Tasks
-
-**T12 — Ship scan suppression M1 + M2**
-Implement two suppression mechanisms that unblock security skill developers immediately:
-
-- **M1** (skill author): `security.suppressScanRules` in `SKILL.md` frontmatter —
-  scanner downgrades matched findings to `info` severity, records justification.
-- **M2** (operator): `security.scan.skillRuleSuppressions` in gateway config — operator
-  pre-approves specific skills for specific rules.
-
-Immediate workaround (no code needed): place skills under `~/.openclaw/skills/` (M3).
-
-### Planning Near-Term Tasks
-
-**T13 — AST-level and custom scanner rules**
-The current regex scanner cannot distinguish `exec(userInput)` from
-`exec(['nmap', '--version'])`. Add optional AST analysis (using `oxc-parser`) and a
-rule plugin interface so trusted scanner plugins can add custom rules (YARA, AST checks,
-private enterprise rules). Depends on T02.
-
-**T14 — Pre-download scan for npm-sourced skills**
-Verify `--ignore-scripts` is consistently applied across all install code paths; add
-a tarball-level scan before `npm install` (fetch `.tgz`, scan contents, then run
-install only if scan passes). Depends on T02.
-
-### Goal Mid/Long Term
-
-**T29 — Skill and plugin signing scheme**
-Design and implement signing for skills and plugins: minisign or SSH-based signing,
-content hash of each file + manifest, verification against operator-trusted public
-keys at install time. UX: `openclaw skill verify <name>`. Depends on T02.
-
-**T30 — Provenance receipt (`.scan-receipt.json`)**
-After `before_skill_install` passes, write a content-addressed receipt (file hashes,
-scan summary, hook results, signature). Subsequent `audit --deep` runs verify against
-the receipt, detecting post-install tampering. Depends on T02.
-
-**T31 — ClawHub registry: scan summaries + signing UI**
-Surface per-skill scan summaries in ClawHub before install; block skills with
-unacknowledged `critical` findings; allow authors to upload signed suppression
-attestations tied to specific versions. Depends on T29.
-
-**T32 — Supply chain scanner plugin capability**
-A first-class "supply chain scanner" plugin role: registered in the enforcement tier,
-receives `before_skill_install` and `before_plugin_install` events, consults external
-vulnerability databases (OSV, Snyk, npm audit), and enforces org-specific dependency
-allowlists. Depends on T15 and T17.
 
 ---
 
@@ -452,62 +291,60 @@ allowlists. Depends on T15 and T17.
 T01 (Trust model decision)
   └── T03 (Enforcement tier config)
         └── T15 (Enforcement tier shipped)
-              ├── T16 (Watcher API)
-              ├── T17 (before_plugin_install)
-              ├── T18 (Network egress)
+              ├── T16, T17, T18 (Watcher / plugin install / egress hooks)
               └── T32 (Supply chain scanner plugin)
 
 T06/T07 (Credentials RFC + design)
-  └── T19–T22 (Credential provider implementation)
+  └── T19 → T20 → T21/T22 (Credential provider implementation)
 
 T02 (before_skill_install)
-  ├── T12 (Scan suppression, shared prerequisite)
+  ├── T12 (Scan suppression — shared prerequisite)
   └── T13, T14, T29, T30 (Scanner + provenance work)
 
 T08 (Sender identity primitives)
   └── T09, T10 (Policy, dispatch enrichment)
-        └── T23–T28 (IAM spec + full implementation)
+        └── T23 → T24–T28 (Full IAM implementation)
 
 T11 (Group context for hooks)
   └── T27, T28 (groupScope + group role model)
 ```
 
-**Critical path:** T01 → T03 → T15 is the bottleneck for both the credential
-provider (needs a trusted plugin tier) and the supply chain scanner plugin.
-The trust model decision (T01) must come first and is the top WG priority.
+**Critical path:** T01 → T03 → T15 is the bottleneck for enforcement, credential
+provider, and supply chain scanner plugin. The trust model decision (T01) is the
+top WG priority.
 
 ### Failure Posture Policy
 
-All enforcement hooks in this roadmap default to **fail-closed** when an enforcement
-tier is configured, and **fail-open** (with logged warning) when no enforcement is
-configured. This is consistent with SECURITY.md's opt-in framing: enforcement is
-off by default, but once opted in, failures must not silently permit blocked operations.
+All enforcement hooks default to **fail-closed** when an enforcement tier is
+configured, and **fail-open** (with logged warning) when not configured. Enforcement
+is opt-in; once opted in, failures must not silently permit blocked operations.
 
 ---
 
 ## Open Questions for the Security WG
 
-These require input from partner security teams; responses targeted before 4/11.
+Input needed from partner security teams before 4/11.
 
-**Q1 — Trust model selection**
-Which enforcement model best fits your enterprise deployment?
+**Q1 — Trust model:** Enterprise policy gate, vendor attestation, or hybrid?
 
-- A. Enterprise policy gate: `plugins.securityHooks.allowedPluginIds` in operator
-  config (operator-controlled, no PKI, fast deployment)
-- B. Vendor attestation: signed plugin with verified publisher key (stronger, requires
-  PKI setup)
-- C. Hybrid: policy gate for internal/private plugins; attestation required for
-  third-party/community plugins
-
-**Q2 — Hook coverage gaps**
-Are there security enforcement points NOT covered by the current or proposed hook set?
-Specific scenarios where you need to intercept but cannot with `before_dispatch`,
+**Q2 — Hook coverage:** Are there enforcement points not covered by `before_dispatch`,
 `before_tool_call`, `before_skill_install`, `before_compaction`, or `credential_resolve`?
 
-**Q3 — Credential lifecycle**
-Does the proposed `"plugin"` SecretRefSource cover your token-refresh, rotation
-notification, and federated identity scenarios? What is the latency budget for a
-`credential_resolve` call in a tool-call hot path?
+**Q3 — Credential lifecycle:** Does the `"plugin"` SecretRefSource cover token-refresh,
+rotation, and federated identity scenarios? What is the latency budget for
+`credential_resolve` in a tool-call hot path?
+
+---
+
+## External References
+
+| Document                                                                                                                          | Description                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [OpenClaw Security WG — Plugin Trust Model (Discussion Draft)](https://bytedance.larkoffice.com/docx/UkoJdaDBko8yVBxHgYlcdnCzn7c) | WG discussion draft on plugin trust model — foundational input for T01                        |
+| [RFC: Credential Provider Plugin #59165](https://github.com/openclaw/openclaw/issues/59165)                                       | GitHub RFC for the plugin-extensible credential provider — basis for T06/T07                  |
+| [OpenClaw Security and Sandboxing](https://docs.openclaw.ai/gateway/security)                                                     | Official docs: current security model, operator trust boundary, out-of-scope definition       |
+| [ClawSentry LT Planning One Pager](https://bytedance.larkoffice.com/wiki/Ggifw3Ziti2RG2k03nVclDTMnKd)                             | Leadership planning one-pager for the ClawSentry security initiative                          |
+| [OpenClaw 需求讨论草案](https://bytedance.larkoffice.com/docx/Psv5dwDrOoSIcyx5LZpczAKknoh)                                        | Requirements discussion draft (Chinese) — internal product requirements for security features |
 
 ---
 
@@ -518,7 +355,7 @@ notification, and federated identity scenarios? What is the latency budget for a
 | [plugin-security-hooks.md](plugin-security-hooks.md)                                       | `before_skill_install` and `before_tool_call` full design — concerns C1–C6 and §10 |
 | [proposal-content-inspection-interception.md](proposal-content-inspection-interception.md) | `before_dispatch` hook solution (T10, T11)                                         |
 | [proposal-security-skill-scan-suppression.md](proposal-security-skill-scan-suppression.md) | Scan suppression mechanisms M1/M2/M3 (T12)                                         |
-| [external-research-landscape.md](external-research-landscape.md)                           | Four 2026 papers: ClawKeeper, taxonomy, HITL, FASA — mapped to tasks below         |
+| [external-research-landscape.md](external-research-landscape.md)                           | Four 2026 papers: ClawKeeper, taxonomy, HITL, FASA — mapped to tasks               |
 | [agentic-enterprise-security-landscape.md](agentic-enterprise-security-landscape.md)       | Okta, Palo Alto AIRS, NVIDIA OpenShell vendor analysis                             |
 | [security-wg-panel-agenda.md](security-wg-panel-agenda.md)                                 | WG panel agenda with 9 attacker scenarios and 5 decision areas                     |
 | [SECURITY.md](../../../../SECURITY.md)                                                     | Current trust model, operator model, out-of-scope definition                       |
